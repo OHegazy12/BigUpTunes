@@ -7,47 +7,99 @@
 
 import UIKit
 
+enum HomeSectionType {
+    case newReleases(viewModels: [NewReleasesCellViewModel]) // Section 1
+    case featuredPlaylists(viewModels: [FeaturedPlaylistCellViewModel]) // Section  2
+    case recommendedTracks(viewModels: [RecommendedTracksCellViewModel]) // Section 3
+}
+
 class HomeViewController: UIViewController {
 
     let menuBar = MenuBar()
-    //let playlistCellId = "playlistId"
-    //let music: [[Track]] = [playlists, artists, albums]
     
-    lazy var collectionView: UICollectionView = {
-        let layout = UICollectionViewFlowLayout()
-        layout.scrollDirection = .horizontal
-        layout.minimumLineSpacing = 0
-        
-        let cv = UICollectionView(frame: .zero, collectionViewLayout: layout)
-        cv.translatesAutoresizingMaskIntoConstraints = false
-        cv.register(NewReleaseCell.self, forCellWithReuseIdentifier: NewReleaseCell.identifier)
-        cv.register(FeaturedPlaylistCell.self, forCellWithReuseIdentifier: FeaturedPlaylistCell.identifier)
-        cv.register(RecommendedTrackCell.self, forCellWithReuseIdentifier: RecommendedTrackCell.identifier)
-        cv.backgroundColor = .spotifyBlack
-        cv.isPagingEnabled = true
-        cv.dataSource = self
-        cv.delegate = self
-        
-        return cv
+    private var newAlbums: [Album] = []
+    private var playlists: [Playlist] = []
+    private var tracks: [AudioTrack] = []
+    
+    private var collectionView: UICollectionView = UICollectionView(frame: .zero, collectionViewLayout: UICollectionViewCompositionalLayout { sectionIndex, _ -> NSCollectionLayoutSection? in
+        return HomeViewController.createSectionLayout(section: sectionIndex)
+    })
+    
+    private let spinner: UIActivityIndicatorView = {
+        let spinner = UIActivityIndicatorView()
+        spinner.tintColor = .label
+        spinner.hidesWhenStopped = true
+        return spinner
     }()
     
-    let colors: [UIColor] = [.systemRed, .systemBlue, .systemTeal]
+    private var sections = [HomeSectionType]()
     
     override func viewDidLoad() {
         super.viewDidLoad()
 
         // Do any additional setup after loading the view.
         view.backgroundColor = .systemBackground
-        menuBar.delegate = self
         navigationItem.rightBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "gear"), style: .done, target: self, action: #selector(didTapSettings))
         
-        layout()
+        configureCollectionView()
+        view.addSubview(spinner)
         fetchData()
     }
     
-    private func fetchData() {
-        // Featured Playlists
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        collectionView.frame = view.bounds
+    }
+    
+    private func configureCollectionView() {
+        view.addSubview(collectionView)
+        collectionView.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "cell")
+        collectionView.register(NewReleaseCell.self, forCellWithReuseIdentifier: NewReleaseCell.identifier)
+        collectionView.register(FeaturedPlaylistCell.self, forCellWithReuseIdentifier: FeaturedPlaylistCell.identifier)
+        collectionView.register(RecommendedTrackCell.self, forCellWithReuseIdentifier: RecommendedTrackCell.identifier)
         
+        collectionView.delegate = self
+        collectionView.dataSource = self
+        collectionView.backgroundColor = .systemBackground
+    }
+    
+    private func fetchData() {
+        let group = DispatchGroup()
+        group.enter()
+        group.enter()
+        group.enter()
+        
+        print("Data is being fetched!")
+        
+        var newReleases: NewReleasesResponse?
+        var featuredPlaylists: FeaturedPlaylistsResponse?
+        var recommendedTracks: RecommendationResponse?
+        
+        // New Releases
+        APICaller.shared.getNewReleases { result in
+            defer {
+                group.leave()
+            }
+            switch result {
+            case .success(let model):
+                    newReleases = model
+            case .failure(let error):
+                    print(error.localizedDescription)
+            }
+        }
+        
+        // Featured Playlists
+        APICaller.shared.getFeaturedPlaylists { result in
+            defer {
+                group.leave()
+            }
+            switch result {
+            case .success(let model):
+                    featuredPlaylists = model
+            case .failure(let error):
+                    print(error.localizedDescription)
+            }
+        }
         
         // Recommended Tracks
         APICaller.shared.getRecommendedGenres { result in
@@ -59,15 +111,56 @@ class HomeViewController: UIViewController {
                     seeds.insert(genres.randomElement()!)
                 }
                 
-                APICaller.shared.getRecommendations(genres: seeds) { _ in
+                APICaller.shared.getRecommendations(genres: seeds) { recommendedResults in
+                    defer {
+                        group.leave()
+                    }
+                    switch recommendedResults {
+                    case .success(let model):
+                        recommendedTracks = model
+                    case .failure(let error):
+                        print(error.localizedDescription)
+                    }
                     
                 }
             case .failure(let error): break
             }
         }
         
-        // New Releases
+        group.notify(queue: .main) {
+            guard let newAlbums = newReleases?.albums.items, let playlists = featuredPlaylists?.playlists.items, let tracks = recommendedTracks?.tracks else {
+                fatalError("Models are nil")
+                return
+            }
+            
+            print("Configuring View Models")
+            self.configureModels(newAlbums: newAlbums, playlists: playlists, tracks: tracks)
+        }
         
+    }
+    
+    private func configureModels(newAlbums: [Album], playlists: [Playlist],tracks: [AudioTrack]) {
+        
+        self.newAlbums = newAlbums
+        self.playlists = playlists
+        self.tracks = tracks
+        
+        // Configure Models
+        sections.append(.newReleases(viewModels: newAlbums.compactMap({
+            return NewReleasesCellViewModel(name: $0.name, albumCover: URL(string: $0.images.first?.url ?? ""), number_of_tracks: $0.total_tracks, artistname: $0.artists.first?.name ?? "-")
+        })))
+        
+        print(newAlbums.count)
+        print(playlists.count)
+        print(tracks.count)
+        
+        sections.append(.featuredPlaylists(viewModels: playlists.compactMap({
+            return FeaturedPlaylistCellViewModel(name: $0.name, albumCover: URL(string: $0.images.first?.url ?? ""), creatorName: $0.owner.display_name)
+        })))
+        sections.append(.recommendedTracks(viewModels: tracks.compactMap({
+            return RecommendedTracksCellViewModel(name: $0.name, albumCover: URL(string: $0.album?.images.first?.url ?? ""), artistname: $0.artists.first?.name ?? "-")
+        })))
+        collectionView.reloadData()
     }
     
     @objc func didTapSettings() {
@@ -76,64 +169,147 @@ class HomeViewController: UIViewController {
         vc.navigationItem.largeTitleDisplayMode = .never
         navigationController?.pushViewController(vc, animated: true)
     }
-    
-    func layout() {
-        menuBar.translatesAutoresizingMaskIntoConstraints = false
-        
-        view.addSubview(menuBar)
-        view.addSubview(collectionView)
-        
-        NSLayoutConstraint.activate([
-            // menubar
-            menuBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            menuBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            menuBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            menuBar.heightAnchor.constraint(equalToConstant: 42),
-
-            // collection view
-            collectionView.topAnchor.constraint(equalToSystemSpacingBelow: menuBar.bottomAnchor, multiplier: 2),
-            collectionView.leadingAnchor.constraint(equalToSystemSpacingAfter: view.leadingAnchor, multiplier: 0),
-            view.trailingAnchor.constraint(equalToSystemSpacingAfter: collectionView.trailingAnchor, multiplier: 0),
-            view.safeAreaLayoutGuide.bottomAnchor.constraint(equalToSystemSpacingBelow: collectionView.bottomAnchor, multiplier: 0)
-        ])
-    } 
-
 }
 
-extension HomeViewController: UICollectionViewDataSource {
+extension HomeViewController: UICollectionViewDelegate, UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return music.count
+        let type = sections[section]
+        switch type {
+        case .newReleases(let viewModels):
+            return viewModels.count
+        case .featuredPlaylists(let viewModels):
+            return viewModels.count
+        case .recommendedTracks(let viewModels):
+            return viewModels.count
+        }
+    }
+    
+    func numberOfSections(in collectionView: UICollectionView) -> Int {
+        return sections.count
     }
     
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: playlistCellId, for: indexPath) as! PlaylistCell
-        cell.backgroundColor = colors[indexPath.item]
-        cell.tracks = music[indexPath.item]
-        return cell
-    }
-}
+        let type = sections[indexPath.section]
+        
+        switch type {
+        case .newReleases(let viewModels):
+            guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: NewReleaseCell.identifier, for: indexPath) as? NewReleaseCell else {
+                return UICollectionViewCell()
+            }
+            
+            let viewModel = viewModels[indexPath.row]
+            cell.configure(with: viewModel)
+            return cell
+            
+        case .featuredPlaylists(let viewModels):
+            guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: FeaturedPlaylistCell.identifier, for: indexPath) as? FeaturedPlaylistCell else {
+                return UICollectionViewCell()
+            }
 
-extension HomeViewController: UICollectionViewDelegateFlowLayout {
-    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        return CGSize(width: view.frame.width, height: collectionView.frame.height)
+            let viewModel = viewModels[indexPath.row]
+            cell.configure(with: viewModel)
+            return cell
+
+        case .recommendedTracks(let viewModels):
+            guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: RecommendedTrackCell.identifier, for: indexPath) as? RecommendedTrackCell else {
+                return UICollectionViewCell()
+            }
+
+            let viewModel = viewModels[indexPath.row]
+            cell.configure(with: viewModel)
+            return cell
+        }
+    }
+
+    
+    static func createSectionLayout(section: Int) -> NSCollectionLayoutSection {
+        switch section {
+        case 0:
+            // Item
+            let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .fractionalHeight(1.0)))
+            
+            item.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 2, bottom: 2, trailing: 2)
+            
+            // Group
+            let verticalGroup = NSCollectionLayoutGroup.vertical(layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .absolute(390)), subitem: item, count: 3)
+            let horizontalGroup = NSCollectionLayoutGroup.horizontal(layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(0.9), heightDimension: .absolute(390)), subitem: verticalGroup, count: 1)
+            
+            // Section
+            let section = NSCollectionLayoutSection(group: horizontalGroup)
+            section.orthogonalScrollingBehavior = .groupPaging
+            
+            return section
+        
+        case 1:
+            // Item
+            let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(widthDimension: .absolute(200), heightDimension: .absolute(200)))
+            
+            item.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 2, bottom: 2, trailing: 2)
+            
+            // Group
+            
+            let verticalGroup = NSCollectionLayoutGroup.vertical(layoutSize: NSCollectionLayoutSize(widthDimension: .absolute(200), heightDimension: .absolute(400)), subitem: item, count: 2)
+            
+            let horizontalGroup = NSCollectionLayoutGroup.horizontal(layoutSize: NSCollectionLayoutSize(widthDimension: .absolute(200), heightDimension: .absolute(400)), subitem: verticalGroup, count: 1)
+            
+            // Section
+            let section = NSCollectionLayoutSection(group: horizontalGroup)
+            section.orthogonalScrollingBehavior = .continuous
+            
+            return section
+            
+        case 2:
+            // Item
+            let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .absolute(60)))
+            
+            item.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 2, bottom: 2, trailing: 2)
+            
+            // Group
+            
+            let group = NSCollectionLayoutGroup.vertical(layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(80)), subitem: item, count: 1)
+            
+            // Section
+            let section = NSCollectionLayoutSection(group: group)
+            
+            return section
+            
+        default:
+            // Item
+            let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .fractionalHeight(1.0)))
+            
+            item.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 2, bottom: 2, trailing: 2)
+            
+            // Group
+            let group = NSCollectionLayoutGroup.vertical(layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .absolute(360)), subitem: item, count: 1)
+          
+            // Section
+            let section = NSCollectionLayoutSection(group: group)
+            
+            return section
+        }
     }
     
-    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
-//         let index = targetContentOffset.pointee.x / view.frame.width
-//         menuBar.selectItem(at: Int(index))
-    }
-    
-    // Scrolling - complex but beautiful
-    func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        menuBar.scrollIndicator(to: scrollView.contentOffset)
-    }
-
-
-}
-
-extension HomeViewController: MenuBarDelegate {
-    func didSelectItemAt(index: Int) {
-        let indexPath = IndexPath(item: index, section: 0)
-        collectionView.scrollToItem(at: indexPath, at: [], animated: true)
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        collectionView.deselectItem(at: indexPath, animated: true)
+        let section = sections[indexPath.section]
+        
+        switch section {
+        case .newReleases:
+            let album = newAlbums[indexPath.row]
+            let albumVC = AlbumViewController(album: album)
+            albumVC.title = album.name
+            albumVC.navigationItem.largeTitleDisplayMode = .never
+            navigationController?.pushViewController(albumVC, animated: true)
+            break
+        case .featuredPlaylists:
+            let playlist = playlists[indexPath.row]
+            let playlistVC = PlaylistViewController(playlist: playlist)
+            playlistVC.title = playlist.name
+            playlistVC.navigationItem.largeTitleDisplayMode = .never
+            navigationController?.pushViewController(playlistVC, animated: true)
+            break
+        case .recommendedTracks:
+            break
+        }
     }
 }
