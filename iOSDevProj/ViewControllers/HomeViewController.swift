@@ -11,6 +11,17 @@ enum HomeSectionType {
     case newReleases(viewModels: [NewReleasesCellViewModel]) // Section 1
     case featuredPlaylists(viewModels: [FeaturedPlaylistCellViewModel]) // Section  2
     case recommendedTracks(viewModels: [RecommendedTracksCellViewModel]) // Section 3
+    
+    var title: String {
+        switch self {
+        case .newReleases(let viewModels):
+            return "New Releases"
+        case .featuredPlaylists(let viewModels):
+            return "Featured"
+        case .recommendedTracks(let viewModels):
+            return "Recommended"
+        }
+    }
 }
 
 class HomeViewController: UIViewController {
@@ -57,6 +68,8 @@ class HomeViewController: UIViewController {
         collectionView.register(NewReleaseCell.self, forCellWithReuseIdentifier: NewReleaseCell.identifier)
         collectionView.register(FeaturedPlaylistCell.self, forCellWithReuseIdentifier: FeaturedPlaylistCell.identifier)
         collectionView.register(RecommendedTrackCell.self, forCellWithReuseIdentifier: RecommendedTrackCell.identifier)
+        
+        collectionView.register(HeaderTitleCollectionReusableView.self, forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader, withReuseIdentifier: HeaderTitleCollectionReusableView.identifier)
         
         collectionView.delegate = self
         collectionView.dataSource = self
@@ -221,8 +234,24 @@ extension HomeViewController: UICollectionViewDelegate, UICollectionViewDataSour
         }
     }
 
+    func collectionView(_ collectionView: UICollectionView, viewForSupplementaryElementOfKind kind: String, at indexPath: IndexPath) -> UICollectionReusableView {
+        guard let browseHeader = collectionView.dequeueReusableSupplementaryView(ofKind: kind, withReuseIdentifier: HeaderTitleCollectionReusableView.identifier, for: indexPath) as? HeaderTitleCollectionReusableView, kind == UICollectionView.elementKindSectionHeader else {
+            return UICollectionReusableView()
+        }
+        
+        let section = indexPath.section
+        let title = sections[section].title
+        
+        browseHeader.configure(with: title)
+        return browseHeader
+    }
     
     static func createSectionLayout(section: Int) -> NSCollectionLayoutSection {
+        
+        let supplementaryHomeViews = [
+            NSCollectionLayoutBoundarySupplementaryItem(layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(50)), elementKind: UICollectionView.elementKindSectionHeader, alignment: .top)
+        ]
+        
         switch section {
         case 0:
             // Item
@@ -237,6 +266,7 @@ extension HomeViewController: UICollectionViewDelegate, UICollectionViewDataSour
             // Section
             let section = NSCollectionLayoutSection(group: horizontalGroup)
             section.orthogonalScrollingBehavior = .groupPaging
+            section.boundarySupplementaryItems = supplementaryHomeViews
             
             return section
         
@@ -255,6 +285,7 @@ extension HomeViewController: UICollectionViewDelegate, UICollectionViewDataSour
             // Section
             let section = NSCollectionLayoutSection(group: horizontalGroup)
             section.orthogonalScrollingBehavior = .continuous
+            section.boundarySupplementaryItems = supplementaryHomeViews
             
             return section
             
@@ -270,6 +301,7 @@ extension HomeViewController: UICollectionViewDelegate, UICollectionViewDataSour
             
             // Section
             let section = NSCollectionLayoutSection(group: group)
+            section.boundarySupplementaryItems = supplementaryHomeViews
             
             return section
             
@@ -284,6 +316,7 @@ extension HomeViewController: UICollectionViewDelegate, UICollectionViewDataSour
           
             // Section
             let section = NSCollectionLayoutSection(group: group)
+            section.boundarySupplementaryItems = supplementaryHomeViews
             
             return section
         }
