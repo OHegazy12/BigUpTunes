@@ -17,6 +17,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         
         if AuthManager.shared.isSignedIn
         {
+            AuthManager.shared.refreshIfNeeded(completion: nil)
             window = UIWindow(frame: UIScreen.main.bounds)
             window?.backgroundColor = .systemBackground
             window?.makeKeyAndVisible()
