@@ -7,15 +7,21 @@
 
 import UIKit
 import AVFoundation
+import SDWebImage
 
-class PlayerViewController: UIViewController {
+// https://youtube.com/playlist?list=PL5PR3UyfTWve9ZC7Yws0x6EGjBO2FGr0o, I implemented a PlayerViewController on my own, parts 18-19 were used to help change it from a hardcoded Player to a dynamic Player (meaning being able to play dynamically fetched tracks instead of hardcoded tracks).
+
+protocol PlayerViewControllerDelegate: AnyObject {
+    func didTapPlayPause()
+    func didTapForward()
+    func didTapBackwards()
+    func didSlideSlider(_ value: Float)
+}
+
+class PlayerViewController: UIViewController, PlayerControlsViewDelegate {
     
-    public var position: Int = 0
-    public var tracks: [Track] = []
-    
-    var holderView: UIView!
-    
-    var player: AVAudioPlayer?
+    weak var dataSource: PlayerDataSource?
+    weak var delegate: PlayerViewControllerDelegate?
     
     private let albumImageView: UIImageView =
     {
@@ -23,182 +29,195 @@ class PlayerViewController: UIViewController {
         imageView.contentMode = .scaleAspectFill
         return imageView
     }()
-    
-    private let trackNameLabel: UILabel =
-    {
-        let label = UILabel()
-        label.textAlignment = .center
-        label.numberOfLines = 0
-        return label
-    }()
-    
-    private let artistNameLabel: UILabel =
-    {
-        let label = UILabel()
-        label.textAlignment = .center
-        label.numberOfLines = 0
-        return label
-    }()
-    
+
+    private let playerControls = PlayerControllers()
     
     override func viewDidLoad()
     {
         super.viewDidLoad()
-        
-        // Do any additional setup after loading the view.
+        view.backgroundColor = .systemBackground
+        view.addSubview(albumImageView)
+        view.addSubview(playerControls)
+        playerControls.delegate = self
+        configureBarButtons()
+        configurePlayerUI()
+    }
+    
+    private func configurePlayerUI() {
+        albumImageView.sd_setImage(with: dataSource?.imageURL, completed: nil)
+        playerControls.configure(with: PlayerControllerViewModel(title: dataSource?.songName, subtitle: dataSource?.subtitle))
+    }
+    
+    private func configureBarButtons() {
+        navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .close, target: self, action: #selector(didTapCloseButton))
+        navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .action, target: self, action: #selector(didTapActionButton))
+    }
+    
+    @objc private func didTapCloseButton() {
+        dismiss(animated: true, completion: nil)
+    }
+    
+    @objc private func didTapActionButton() {
+        let shareVC = UIActivityViewController(activityItems: ["Share this track!"], applicationActivities: [])
+        shareVC.popoverPresentationController?.barButtonItem = navigationItem.rightBarButtonItem
+        present(shareVC, animated: true)
+    }
+    
+    func refreshUI() {
+        configurePlayerUI()
     }
     
     override func viewDidLayoutSubviews()
     {
         super.viewDidLayoutSubviews()
-        if holderView == nil
-        {
-            holderView = UIView(frame: CGRect(x: 40, y: 40, width: view.frame.size.width - 40, height: view.frame.size.width + 250))
-            holderView.center = view.center
-            //holderView.backgroundColor = .spotifyGreen
-            holderView.backgroundColor = .systemBackground
-            view.addSubview(holderView)
-        }
-        if holderView.subviews.count == 0
-        {
-            configure()
-        }
+        configure()
     }
     
-    let playPauseButton = UIButton()
-    let nextButton = UIButton()
-    let backButton = UIButton()
+    private func configure() {
+        albumImageView.frame = CGRect(x: 0, y: view.safeAreaInsets.top, width: view.width, height: view.width)
+        playerControls.frame = CGRect(x: 10, y: albumImageView.bottom + 10, width: view.width - 20, height: CGFloat(view.height - albumImageView.height - view.safeAreaInsets.bottom - 15))
+    }
+
+    func didTapPlayPauseButton(_ playercontrollersView: PlayerControllers) {
+        delegate?.didTapPlayPause()
+    }
     
-    func configure()
-    {
-        let track = tracks[position]
-        
-        let urlString = Bundle.main.path(forResource: track.trackName, ofType: "mp3")
-        
-        do {
-            try AVAudioSession.sharedInstance().setMode(.default)
-            try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
-            
-            guard let urlString = urlString else
-            {
-                print("URLString does not exist")
-                return
-            }
-            
-            player = try AVAudioPlayer(contentsOf: URL(string: urlString)!)
-            
-            guard let player = player else
-            {
-                print("Player does not exist")
-                return
-            }
-            
-            player.volume = 0.5
-            player.play()
-        }
-        catch
-        {
-            print("Error: \(error.localizedDescription)")
-        }
-        
-        
-        albumImageView.frame = CGRect(x: 10, y: 10, width: holderView.frame.size.width - 20, height: holderView.frame.size.width - 20)
-        albumImageView.image = UIImage(named: track.imageName)
-        holderView.addSubview(albumImageView)
-        
-        holderView.addSubview(trackNameLabel)
-        holderView.addSubview(artistNameLabel)
-        
-        trackNameLabel.frame = CGRect(x: 10, y: albumImageView.frame.size.height + 10, width: holderView.frame.size.width - 20, height: 70)
-        artistNameLabel.frame = CGRect(x: 10, y: albumImageView.frame.size.height + 10 + 40, width: holderView.frame.size.width - 20, height: 70)
-        
-        trackNameLabel.text = track.title
-        artistNameLabel.text = track.artist
-        
-        playPauseButton.setBackgroundImage(UIImage(systemName: "pause.fill"), for: .normal)
-        backButton.setBackgroundImage(UIImage(systemName: "backward.fill"), for: .normal)
-        nextButton.setBackgroundImage(UIImage(systemName: "forward.fill"), for: .normal)
-        
-        let yPosition = artistNameLabel.frame.origin.y + 70 + 20
-        let size: CGFloat = 80
-        
-        playPauseButton.frame = CGRect(x: (holderView.frame.size.width) / 2.5, y: yPosition, width: size, height: size)
-        nextButton.frame = CGRect(x: holderView.frame.size.width - size - 20, y: yPosition, width: size, height: size)
-        backButton.frame = CGRect(x: 20, y: yPosition, width: size, height: size)
-        
-        playPauseButton.addTarget(self, action: #selector(didTapPlayPauseButton), for: .touchUpInside)
-        nextButton.addTarget(self, action: #selector(didTapNextButton), for: .touchUpInside)
-        backButton.addTarget(self, action: #selector(didTapBackButton), for: .touchUpInside)
-        
-        playPauseButton.tintColor = .black
-        backButton.tintColor = .black
-        nextButton.tintColor = .black
-        
-        holderView.addSubview(playPauseButton)
-        holderView.addSubview(nextButton)
-        holderView.addSubview(backButton)
-        
-        let slider = UISlider(frame: CGRect(x: 20, y: holderView.frame.size.height - 60, width: holderView.frame.size.width - 40, height: 50))
+    func didTapForwardButton(_ playercontrollersView: PlayerControllers) {
+        delegate?.didTapForward()
+    }
+    
+    func didTapRewindButton(_ playercontrollersView: PlayerControllers) {
+        delegate?.didTapBackwards()
+    }
+    
+    func playerControlsView(_ playercontrollersView: PlayerControllers, didSlideSlider value: Float) {
+        delegate?.didSlideSlider(value)
+    }
+}
+
+protocol PlayerControlsViewDelegate: AnyObject {
+    func didTapPlayPauseButton(_ playercontrollersView: PlayerControllers)
+    func didTapForwardButton(_ playercontrollersView: PlayerControllers)
+    func didTapRewindButton(_ playercontrollersView: PlayerControllers)
+    func playerControlsView(_ playercontrollersView: PlayerControllers, didSlideSlider value: Float)
+}
+
+final class PlayerControllers: UIView {
+    
+    weak var delegate: PlayerControlsViewDelegate?
+    
+    private var isPlaying = true
+    
+    private let slider: UISlider = {
+        let slider = UISlider()
         slider.value = 0.5
+        return slider
+    }()
+    
+    private let nameLabel: UILabel =
+    {
+        let label = UILabel()
+        label.textAlignment = .center
+        label.numberOfLines = 1
+        label.font = .systemFont(ofSize: 20, weight: .bold)
+        return label
+    }()
+
+    private let subtitleLabel: UILabel =
+    {
+        let label = UILabel()
+        label.textAlignment = .center
+        label.numberOfLines = 1
+        label.font = .systemFont(ofSize: 18, weight: .semibold)
+        return label
+    }()
+    
+    let rewind: UIButton = {
+        let backButton = UIButton()
+        backButton.tintColor = .label
+        backButton.setBackgroundImage(UIImage(systemName: "backward.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 34, weight: .regular)), for: .normal)
+        return backButton
+    }()
+    
+    let forward: UIButton = {
+        let nextButton = UIButton()
+        nextButton.tintColor = .label
+        nextButton.setBackgroundImage(UIImage(systemName: "forward.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 34, weight: .regular)), for: .normal)
+        return nextButton
+    }()
+    
+    let playPause: UIButton = {
+       let playPauseButton = UIButton()
+        playPauseButton.tintColor = .label
+        playPauseButton.setBackgroundImage(UIImage(systemName: "pause.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 34, weight: .regular)), for: .normal)
+        return playPauseButton
+    }()
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        addSubview(nameLabel)
+        addSubview(subtitleLabel)
+        addSubview(slider)
+        addSubview(rewind)
+        addSubview(playPause)
+        addSubview(forward)
+        
+        rewind.addTarget(self, action: #selector(didTapBack), for: .touchUpInside)
+        playPause.addTarget(self, action: #selector(didTapPlayPause), for: .touchUpInside)
+        forward.addTarget(self, action: #selector(didTapForward), for: .touchUpInside)
         slider.addTarget(self, action: #selector(didSlideSlider(_:)), for: .valueChanged)
-        holderView.addSubview(slider)
+        
+        clipsToBounds = true
     }
     
-    @objc func didTapBackButton()
-    {
-        if position > 0
-        {
-            position -= 1
-            player?.stop()
-            for subview in holderView.subviews
-            {
-                subview.removeFromSuperview()
-            }
-            configure()
-        }
-    }
-    
-    @objc func didTapPlayPauseButton()
-    {
-        if player?.isPlaying == true
-        {
-            player?.pause()
-            playPauseButton.setBackgroundImage(UIImage(systemName: "play.fill"), for: .normal)
-        }
-        else
-        {
-            player?.play()
-            playPauseButton.setBackgroundImage(UIImage(systemName: "pause.fill"), for: .normal)
-        }
-    }
-    
-    
-    @objc func didTapNextButton()
-    {
-        if position < (tracks.count - 1)
-        {
-            position += 1
-            player?.stop()
-            for subview in holderView.subviews
-            {
-                subview.removeFromSuperview()
-            }
-            configure()
-        }
-    }
-    
-    @objc func didSlideSlider(_ slider: UISlider)
-    {
+    @objc func didSlideSlider(_ slider: UISlider) {
         let value = slider.value
-        player?.volume = value
+        delegate?.playerControlsView(self, didSlideSlider: value)
     }
     
-    override func viewWillDisappear(_ animated: Bool)
-    {
-        super.viewWillDisappear(animated)
-        if let player  = player
-        {
-            player.stop()
-        }
+    @objc private func didTapBack() {
+        delegate?.didTapRewindButton(self)
     }
+    
+    @objc private func didTapPlayPause() {
+        self.isPlaying = !isPlaying
+        delegate?.didTapPlayPauseButton(self)
+        
+        let pause = UIImage(systemName: "pause.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 34, weight: .regular))
+        let play = UIImage(systemName: "play.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 34, weight: .regular))
+        
+        playPause.setBackgroundImage(isPlaying ? pause : play, for: .normal)
+    }
+    
+    @objc private func didTapForward() {
+        delegate?.didTapForwardButton(self)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError()
+    }
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        nameLabel.frame = CGRect(x: 0, y: 0, width: width, height: 50)
+        subtitleLabel.frame = CGRect(x: 0, y: nameLabel.bottom + 10, width: width, height: 50)
+        
+        slider.frame = CGRect(x: 10, y: subtitleLabel.bottom + 20, width: width - 20, height: 44)
+        
+        let buttonSize: CGFloat = 60
+        playPause.frame = CGRect(x: (width - buttonSize) / 2, y: slider.bottom + 30, width: buttonSize, height: buttonSize)
+        rewind.frame = CGRect(x: playPause.left - 80, y: playPause.top, width: buttonSize, height: buttonSize)
+        forward.frame = CGRect(x: playPause.right + 20, y: playPause.top, width: buttonSize, height: buttonSize)
+    }
+    
+    func configure(with viewModel: PlayerControllerViewModel) {
+        nameLabel.text = viewModel.title
+        subtitleLabel.text = viewModel.subtitle
+    }
+}
+
+struct PlayerControllerViewModel {
+    let title: String?
+    let subtitle: String?
 }

@@ -5,6 +5,9 @@
 //  Created by Omar Hegazy on 5/1/23.
 //
 
+//https://youtube.com/playlist?list=PL5PR3UyfTWve9ZC7Yws0x6EGjBO2FGr0o, part 4 of this playlist was used as reference to make the Profile Page
+
+import SDWebImage
 import UIKit
 
 class ProfileViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
@@ -55,7 +58,27 @@ class ProfileViewController: UIViewController, UITableViewDataSource, UITableVie
         models.append("Country: \(model.country)")
         models.append("User ID: \(model.id)")
         models.append("Current Plan: \(model.product)")
+        createTableHeader(with: model.images.first?.url)
         profileTableView.reloadData()
+    }
+    
+    private func createTableHeader(with string: String?) {
+        guard let urlString = string, let url = URL(string: urlString) else {
+            return
+        }
+        
+        let headerView = UIView(frame: CGRect(x: 0, y: 0, width: view.width, height: view.width/1.5))
+        
+        let imageSize: CGFloat = headerView.height/2
+        let imageView = UIImageView(frame: CGRect(x: 0, y: 0, width: imageSize, height: imageSize))
+        headerView.addSubview(imageView)
+        imageView.center = headerView.center
+        imageView.contentMode = .scaleAspectFill
+        imageView.sd_setImage(with: url)
+        imageView.layer.masksToBounds = true
+        imageView.layer.cornerRadius = imageSize/2
+        
+        profileTableView.tableHeaderView = headerView
     }
     
     private func failedToGetProfile() {
